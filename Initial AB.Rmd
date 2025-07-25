@@ -1,0 +1,205 @@
+---
+title: "Initial A/B Test"
+output: html_document
+date: "2025-07-24"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r load packages and data}
+if(!require(readr)){install.packages('readr')}
+library(readr)
+if(!require(tidyverse)){install.packages('tidyverse')}
+library(tidyverse) 
+if(!require(MOTE)){install.packages('MOTE')}
+library(MOTE) 
+
+bn_data <- read_csv("Data/bn_data.csv", col_types = cols(.default = "c"))
+bp_data <- read_csv("Data/bp_data.csv", col_types = cols(.default = "c"))
+```
+
+```{r clean data}
+#Add a column called SSI specifying BN and BP
+bn_data <- bn_data %>%
+  mutate(SSI = "BN")
+bp_data <- bp_data %>%
+  mutate(SSI = "BP")
+
+#Combine data (columns with the same names will be combined)
+all_data <- bind_rows(bn_data, bp_data)
+
+#Recode variable hope and FAS items (show up in BN only). Recoding satisfaction is more complicated because BP is already numbers but BN is in characters, so need to apply the recoding to only BN rows.
+
+all_data <- all_data %>%
+  mutate(
+    across(contains("hope"), ~ recode(.,
+      "Extremely hopeful"  = 5,
+      "Somewhat hopeful"   = 4,
+      "Neutral"            = 3,
+      "Somewhat hopeless"  = 2,
+      "Extremely hopeless" = 1,
+      .default = NA_real_
+    ) %>% as.numeric()),
+    
+    across(contains("fas"), ~ recode(.,
+      "Strongly disagree"  = 1,
+      "Somewhat disagree"  = 2,
+      "Neutral"            = 3,
+      "Somewhat agree"     = 4,
+      "Strongly agree"     = 5,
+      .default = NA_real_
+    ) %>% as.numeric()),
+    
+    satisfaction = if_else(
+      SSI == "BN",
+      recode(satisfaction,
+        "Extremely satisfied"    = 5,
+        "Somewhat satisfied"     = 4,
+        "Neutral"                = 3,
+        "Somewhat dissatisfied"  = 2,
+        "Extremely dissatisfied" = 1,
+        .default = NA_real_
+      ),
+      as.numeric(satisfaction) #the warning here is no big deal - the missing data is just being marked NA which is correct 
+    )
+  )
+
+#Make other necessary variables numeric 
+all_data <- all_data %>%
+  mutate(
+    across(contains("bodyimage"), as.numeric),
+    across(contains("motivation"), as.numeric)
+  )
+
+#Factor the SSI type variable
+all_data <- all_data %>%
+  mutate(
+    SSI = factor(SSI, levels = c("BN", "BP"))
+  )
+
+#Check data types
+str(all_data)
+```
+
+```{r summarize data}
+#Summarize the variables shared across datasets
+all_data %>%
+  group_by(SSI) %>%
+  summarise(
+    mean_pre_bodyimage = mean(pre_bodyimage, na.rm = TRUE),
+    sd_pre_bodyimage = sd(pre_bodyimage, na.rm = TRUE),
+    mean_post_bodyimage = mean(post_bodyimage, na.rm = TRUE),
+    sd_post_bodyimage = sd(post_bodyimage, na.rm = TRUE),
+    mean_pre_motivation = mean(pre_motivation, na.rm = TRUE),
+    sd_pre_motivation = sd(pre_motivation, na.rm = TRUE),
+    mean_post_motivation = mean(post_motivation, na.rm = TRUE),
+    sd_post_motivation = sd(post_motivation, na.rm = TRUE),
+    mean_satisfaction = mean(satisfaction, na.rm = TRUE),
+    sd_satisfaction = sd(satisfaction, na.rm = TRUE),
+    n = n()
+  )
+
+#Summarize the variables we only have for BN
+all_data %>%
+  filter(SSI == "BN") %>%
+  summarise(
+    mean_pre_hope = mean(pre_hope, na.rm = TRUE),
+    sd_pre_hope = sd(pre_hope, na.rm = TRUE),
+    mean_post_hope = mean(post_hope, na.rm = TRUE),
+    sd_post_hope = sd(post_hope, na.rm = TRUE),
+    mean_pre_fas_1 = mean(pre_fas_1, na.rm = TRUE),
+    sd_pre_fas_1 = sd(pre_fas_1, na.rm = TRUE),
+    mean_post_fas_1 = mean(post_fas_1, na.rm = TRUE),
+    sd_post_fas_1 = sd(post_fas_1, na.rm = TRUE),
+    mean_pre_fas_2 = mean(pre_fas_2, na.rm = TRUE),
+    sd_pre_fas_2 = sd(pre_fas_2, na.rm = TRUE),
+    mean_post_fas_2 = mean(post_fas_2, na.rm = TRUE),
+    sd_post_fas_2 = sd(post_fas_2, na.rm = TRUE)
+  )
+```
+
+```{r test differences}
+#Body image
+lm_compare_bodyimage <- lm(post_bodyimage ~ pre_bodyimage + SSI, data = all_data)
+summary(lm_compare_bodyimage)
+#Significant difference of SSI where BP participants had lower post body image scores than BN participants
+
+#Motivation
+lm_compare_motivation <- lm(post_motivation ~ pre_motivation + SSI, data = all_data)
+summary(lm_compare_motivation)
+#No significant difference
+
+#Satisfaction
+t.test(satisfaction ~ SSI, data = all_data)
+#No significant difference
+```
+
+```{r benchmark BN pre-post changes and effect sizes}
+#Test for significant pre=p-post changes
+
+#Hope 
+t.test(
+  all_data$pre_hope[all_data$SSI == "BN"], 
+  all_data$post_hope[all_data$SSI == "BN"], 
+  paired = TRUE
+)
+hope_stats <- all_data %>%
+  filter(SSI == "BN") %>%
+  select(pre_hope, post_hope) %>%
+  mutate(fas_change = post_hope - pre_hope) %>%
+  summarise(
+    n = n(),
+    across(everything(), list(mean = mean, sd = sd), na.rm = TRUE)
+  )
+d.dep.t.diff(
+  mdiff = hope_stats$fas_change_mean,
+  sddiff = hope_stats$fas_change_sd,
+  n = hope_stats$n,
+  a = .05
+) %>%
+  pluck("estimate")
+
+#FAS item 1
+t.test(
+  all_data$pre_fas_1[all_data$SSI == "BN"], 
+  all_data$post_fas_1[all_data$SSI == "BN"], 
+  paired = TRUE
+)
+fas_1_stats <- all_data %>%
+  filter(SSI == "BN") %>%
+  select(pre_fas_1, post_fas_1) %>%
+  mutate(fas_change = post_fas_1 - pre_fas_1) %>%
+  summarise(
+    n = n(),
+    across(everything(), list(mean = mean, sd = sd), na.rm = TRUE)
+  )
+d.dep.t.diff(
+  mdiff = fas_1_stats$fas_change_mean,
+  sddiff = fas_1_stats$fas_change_sd,
+  n = fas_1_stats$n,
+  a = .05
+) %>%
+  pluck("estimate")
+
+#FAS item 2
+t.test(
+  all_data$pre_fas_2[all_data$SSI == "BN"], 
+  all_data$post_fas_2[all_data$SSI == "BN"], 
+  paired = TRUE
+)
+fas_2_stats <- all_data %>%
+  filter(SSI == "BN") %>%
+  select(pre_fas_2, post_fas_2) %>%
+  mutate(fas_change = post_fas_2 - pre_fas_2) %>%
+  summarise(
+    n = n(),
+    across(everything(), list(mean = mean, sd = sd), na.rm = TRUE)
+  )
+d.dep.t.diff(
+  mdiff = fas_2_stats$fas_change_mean,
+  sddiff = fas_2_stats$fas_change_sd,
+  n = fas_2_stats$n,
+  a = .05
+) %>%
+  pluck("estimate")
+```
