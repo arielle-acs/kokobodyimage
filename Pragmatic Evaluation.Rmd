@@ -1,7 +1,8 @@
 ---
 title: "PBN Pragmatic Evaluation"
+author: Arielle Smith with Claude assistance
 output: html_document
-date: "2026-04-16"
+date: "2026-09-28"
 ---
 
 ```{r load packages and data}
@@ -12,57 +13,13 @@ library(tidyverse)
 if(!require(MOTE)){install.packages('MOTE')}
 library(MOTE) 
 
-df <- read_csv("Data/pbn_only/4.16.26.csv", col_types = cols(.default = "c"))
+df <- read_csv("Data/pbn_only/9.1.26.csv", col_types = cols(.default = "c"))
 ```
 
 ```{r clean data}
-#Clean stray marks
-df <- df %>% 
-  # Step 1: Replace empty [] and {} with NA
-  mutate(across(where(is.character), ~na_if(str_trim(.), "[]"))) %>% 
-  mutate(across(where(is.character), ~na_if(str_trim(.), "{}"))) %>% 
-  # Step 2: Remove outer brackets [ ]
-  mutate(across(where(is.character), ~str_remove_all(., "^\\[|\\]$"))) %>% 
-  # Step 3: Remove all quotation marks
-  mutate(across(where(is.character), ~str_remove_all(., '"'))) %>% 
-  # Step 4: Fix stray semicolon in source
-  mutate(source = str_replace(source, "neda;", "neda"))
- 
-#Rename columns
-df <- df %>% 
-  rename(
-    participant_id = session_key, 
-    dem_country = CQ106327DEM, #NOTE not worrying about for EDRS abstract
-    dem_age = CQ106335DEM, #NOTE not worrying about for EDRS abstract
-    dem_raceethnicity = CQ106344DEM,
-    dem_genderidentity = CQ106339DEM,
-    dem_sexualorientation = CQ106342DEM,
-    pre_hopefulness = CQ812220PRE,
-    pre_fas_1 = CQ812225PRE,
-    pre_fas_2 = CQ812230PRE,
-    pre_bas_1 = CQ812235PRE,
-    pre_bas_2 = CQ812240PRE,
-    pre_bas_3 = CQ812224PRE,
-    post_hopefulness = CQ849580PRE,
-    post_fas_1 = CQ812225POS,
-    post_fas_2 = CQ812230POS,
-    post_bas_1 = CQ812235POS,
-    post_bas_2 = CQ812240POS,
-    post_bas_3 = CQ812224POS,
-    rating_score = CQ113301POS,
-    rating_text = CQ113304POS,
-    dem_weightshapeconcern = CQ812244POS,
-    dem_binge = CQ812245POS,
-    dem_purge = CQ812250POS,
-    dem_restrict = CQ812255POS,
-    dem_foodinsecurity = CQ812260POS,
-    dem_eddx = CQ812265POS,
-    dem_currenttx = CQ812270POS #NOTE not worrying about for EDRS abstract
-  )
-
 #Handle free-text responses in demographics
 
-##Identify preset/valid levels
+##Preset/valid levels
 race_levels <- c("American Indian or Alaskan Native", "Asian (including Asian Desi)",
                  "Black/African American", "Hispanic/Latinx",
                  "Native Hawaiian or other Pacific Islander",
@@ -73,171 +30,145 @@ gender_levels <- c("Cisgender man/boy", "Cisgender woman/girl", "Transgender man
                    "Questioning", "Prefer not to answer")
 
 orientation_levels <- c("Heterosexual/Straight", "Gay/Lesbian", "Bisexual", "Pansexual",
-                        "Queer", "Asexual", "Questioning", "Prefer not the answer")
+                        "Queer", "Asexual", "Questioning", "Prefer not the answer") #This typo is preserved from the survey
 
-##Helper: extracts only the valid parts from a comma-separated string
-extract_valid <- function(x, levels) {
-  if (is.na(x)) return(NA_character_)
-  parts <- str_split(x, ",\\s*")[[1]]
-  valid <- parts[parts %in% levels]
-  if (length(valid) == 0) NA_character_ else paste(valid, collapse = ", ")
+##Helpers
+split_responses <- function(x) {
+  parts <- str_split(x, "\\s*[;,]\\s*")[[1]]
+  parts <- str_squish(parts)
+  parts[parts != ""]
 }
 
-##Helper: extracts only the invalid parts from a comma-separated string
-extract_invalid <- function(x, levels) {
+# Keeps preset selections in their original order; replaces all write-ins with a single "Other", keeping NA as a string
+clean_multiselect <- function(x, levels) {
+  if (is.na(x)) return("NA")
+  parts <- split_responses(x)
+  if (length(parts) == 0) return("NA")
+  is_valid <- parts %in% levels
+  out <- parts[is_valid]
+  if (any(!is_valid)) out <- c(out, "Other")
+  paste(unique(out), collapse = "; ")
+}
+
+# Returns only the write-in text
+extract_othertext <- function(x, levels) {
   if (is.na(x)) return(NA_character_)
-  parts <- str_split(x, ",\\s*")[[1]]
+  parts <- split_responses(x)
   invalid <- parts[!parts %in% levels]
-  if (length(invalid) == 0) NA_character_ else paste(invalid, collapse = ", ")
+  if (length(invalid) == 0) NA_character_ else paste(invalid, collapse = "; ")
 }
- 
-##Put free text into new column
-df <- df %>%
+
+##Preserve original responses
+df <- df |>
   mutate(
-    dem_raceethnicity_freetext = sapply(dem_raceethnicity, extract_invalid, race_levels),
-    dem_raceethnicity = sapply(dem_raceethnicity, extract_valid, race_levels),
-    dem_genderidentity_freetext = sapply(dem_genderidentity, extract_invalid, gender_levels),
-    dem_genderidentity = sapply(dem_genderidentity, extract_valid, gender_levels),
-    dem_sexualorientation_freetext = sapply(dem_sexualorientation, extract_invalid, orientation_levels),
-    dem_sexualorientation = sapply(dem_sexualorientation, extract_valid, orientation_levels)
-  )
- 
-##Recode to "Other" only where original column had something but no valid levels were found
-df <- df %>%
-  mutate(
-    dem_raceethnicity = ifelse(!is.na(dem_raceethnicity_freetext) & is.na(dem_raceethnicity),
-      "Other", dem_raceethnicity),
-    dem_genderidentity = ifelse(!is.na(dem_genderidentity_freetext) & is.na(dem_genderidentity),
-      "Other", dem_genderidentity),
-    dem_sexualorientation = ifelse(!is.na(dem_sexualorientation_freetext) & is.na(dem_sexualorientation),
-      "Other", dem_sexualorientation)
+    dem_raceethnicity_raw = dem_raceethnicity,
+    dem_genderidentity_raw = dem_genderidentity,
+    dem_sexualorientation_raw = dem_sexualorientation
   )
 
-#Factor categorical data
-df <- df %>%
+##Create othertext columns and cleaned columns (othertext first, from the raw columns)
+df <- df |>
   mutate(
-    source = factor(source,),
-    dem_raceethnicity = factor(dem_raceethnicity),
-    dem_genderidentity = factor(dem_genderidentity),
-    dem_sexualorientation = factor(dem_sexualorientation),
-    dem_weightshapeconcern = factor(dem_weightshapeconcern,
-      levels = c("Never", "Rarely", "Sometimes", "Often", "Always")),
-    dem_binge = factor(dem_binge, levels = c("Yes", "No", "Unsure")),
-    dem_purge = factor(dem_purge, levels = c("Yes", "No", "Unsure")),
-    dem_restrict = factor(dem_restrict, levels = c("Yes", "No", "Unsure")),
-    dem_foodinsecurity = factor(dem_foodinsecurity,
-      levels = c("Never", "Rarely", "Sometimes", "Often", "Always")),
-    dem_eddx = factor(dem_eddx, levels = c("Yes", "No", "Unsure")),
-    dem_currenttx = factor(dem_currenttx)
+    dem_raceethnicity_othertext = map_chr(dem_raceethnicity_raw, extract_othertext, race_levels),
+    dem_genderidentity_othertext = map_chr(dem_genderidentity_raw, extract_othertext, gender_levels),
+    dem_sexualorientation_othertext = map_chr(dem_sexualorientation_raw, extract_othertext, orientation_levels),
+
+    dem_raceethnicity = map_chr(dem_raceethnicity_raw, clean_multiselect, race_levels),
+    dem_genderidentity = map_chr(dem_genderidentity_raw, clean_multiselect, gender_levels),
+    dem_sexualorientation = map_chr(dem_sexualorientation_raw, clean_multiselect, orientation_levels)
   )
 
 #Separate out multiple select demographics data into multiple columns
-df <- df %>%
-  left_join(
-    df %>%
-      select(participant_id, dem_genderidentity) %>%
-      separate_rows(dem_genderidentity, sep = ",\\s*") %>%
-      mutate(value = 1) %>%
-      pivot_wider(
-        id_cols = participant_id,
-        names_from = dem_genderidentity,
-        values_from = value,
-        values_fill = list(value = 0),
-        values_fn = list(value = max)
-      ) %>%
-      rename_with(~ paste0("dem_genderidentity_", .),
-                  -participant_id),
-    by = "participant_id"
-  )
+make_dummies <- function(data, col) {
+  data |>
+    select(participant_id, all_of(col)) |>
+    separate_rows(all_of(col), sep = ";\\s*") |>
+    filter(!is.na(.data[[col]])) |>   # avoids a "_NA" column
+    mutate(value = 1) |>
+    pivot_wider(
+      id_cols = participant_id,
+      names_from = all_of(col),
+      values_from = value,
+      values_fill = list(value = 0),
+      values_fn = list(value = max)
+    ) |>
+    rename_with(~ paste0(col, "_", .), -participant_id)
+}
 
-df <- df %>%
-  left_join(
-    df %>%
-      select(participant_id, dem_raceethnicity) %>%
-      separate_rows(dem_raceethnicity, sep = ",\\s*") %>%
-      mutate(value = 1) %>%
-      pivot_wider(
-        id_cols = participant_id,
-        names_from = dem_raceethnicity,
-        values_from = value,
-        values_fill = list(value = 0),
-        values_fn = list(value = max)
-      ) %>%
-      rename_with(~ paste0("dem_raceethnicity_", .),
-                  -participant_id),
-    by = "participant_id"
+df <- df |>
+  left_join(make_dummies(df, "dem_genderidentity"), by = "participant_id") |>
+  left_join(make_dummies(df, "dem_raceethnicity"), by = "participant_id")
+
+
+#Factor categorical data
+df <- df |>
+  mutate(
+    across(
+      c(source, dem_raceethnicity, dem_genderidentity, dem_sexualorientation,
+        dem_weightshapeconcern, dem_binge, dem_purge, dem_restrict,
+        dem_foodinsecurity, dem_eddx, dem_currenttx),
+      factor
+    )
   )
 
 #Make data numeric
-df <- df %>%
+df <- df |>
   mutate(
     across(
-      c(pre_hopefulness, post_hopefulness),
-      ~ recode(.x,
-        "Extremely hopeful" = "5",
-        "Somewhat hopeful" = "4",
-        "Neutral" = "3",
-        "Somewhat hopeless" = "2",
-        "Extremely hopeless" = "1",
-        .default = NA_character_
-      )
-    ),
-    across(
-      c(starts_with("pre_fas"), starts_with("post_fas"),
-        starts_with("pre_bas"), starts_with("post_bas")),
-      ~ recode(.x,
-        "Strongly disagree" = "1",
-        "Disagree" = "2",
-        "Neutral" = "3",
-        "Agree" = "4",
-        "Strongly agree" = "5",
-        .default = NA_character_
-      )
-    ),
-    rating_score = recode(rating_score,
-      "Extremely Dissatisfied" = "1",
-      "Somewhat Dissatisfied" = "2",
-      "Neutral" = "3",
-      "Somewhat Satisfied" = "4",
-      "Extremely Satisfied" = "5",
-      .default = rating_score
-    )
-  ) %>%
-  mutate(
-    across(
-      c(pre_hopefulness, post_hopefulness,
-        starts_with("pre_fas"), starts_with("post_fas"),
-        starts_with("pre_bas"), starts_with("post_bas"),
+      c(contains("hopelessness"), contains("hopefulness"),
+        contains("fas"), contains("bas"),
         rating_score),
       as.numeric
     )
   )
+```
 
-#Create sum scores
-df <- df %>%
-  mutate(
-    pre_fas_sum = pre_fas_1 + pre_fas_2,
-    post_fas_sum = post_fas_1 + post_fas_2,
-    
-    pre_bas_sum = pre_bas_1 + pre_bas_2 + pre_bas_3,
-    post_bas_sum = post_bas_1 + post_bas_2 + post_bas_3
+```{r subset sample}
+df_sample_teen <- df |> 
+  filter(source == "neda" | source == "study") |> 
+  filter(
+    str_detect(
+      dem_age,
+      regex("\\b(13|14|15|16|17)\\b", ignore_case = TRUE)
+    )
+  )
+  
+df_sample_teen_usa <- df_sample_teen %>%
+  filter(
+    str_detect(
+      str_trim(dem_country),
+      regex(
+        "^(us|u\\.s\\.?|usa|u\\.s\\.a\\.?|america|americaaa|american|united states|the united states|united states of america|the united states of america|united stat|united state|unites states|u\\.s/va|north america|pennsylvania)$",
+        ignore_case = TRUE
+      )
+    )
+  )
+
+df_sample_teen_not_usa <- df_sample_teen %>%
+  filter(
+    !str_detect(
+      str_trim(dem_country),
+      regex(
+        "^(us|u\\.s\\.?|usa|u\\.s\\.a\\.?|america|americaaa|american|united states|the united states|united states of america|the united states of america|united stat|united state|unites states|u\\.s/va|north america|pennsylvania)$",
+        ignore_case = TRUE
+      )
+    )
   )
 ```
 
-```{r identify completers}
-df_completed_1 <- df %>%
+```{r identify teen usa completers for EDRS abstract}
+df_sample_teen_usa_fullcompleter <- df_sample_teen_usa |> #full completer according to Koko system (includes post-SSI demographics)
   filter(!is.na(completed_at))
 
-df_completed_2 <- df %>%
-  filter(!is.na(CQ715055BODY))
+df_sample_teen_usa_measurecompleter <- df_sample_teen_usa |> #considering a measure completer if proximal outcome change scores are present
+   filter(!is.na(fas_change), !is.na(bas_change), !is.na(hopelessness_change))
 
-#NOTE: I need a better way to identify everyone who made it to the end of the SSI because right now I can only use the date/time the full module with measures was complete (df_completed_1; but I will probably want to impute data for everyone who makes it to the end of the SSI itself) or the last interactive screen of the SSI (df_completed_2; but people may have still finished the SSI and just skipped this item). For the EDRS abstract, I will report df_completed_2 as the SSI completion rate but use df_completed_1 for all analyses.
-
-#NOTE: the EDRS abstract will just use drop missing data with pairwise deletion (will ultimately need a method for imputing data)
+df_sample_teen_usa_ssicompleter <- df_sample_teen_usa |> #the last selection option in the SSI is the best benchmark I have
+  filter(!is.na(body_copingstatement))
 ```
 
 ```{r acceptability}
-df_completed_1 %>%
+df_sample_teen_usa_measurecompleter |>
   summarize(
     mean = mean(rating_score, na.rm = TRUE),
     sd = sd(rating_score, na.rm = TRUE)
@@ -245,50 +176,51 @@ df_completed_1 %>%
 ```
 
 ```{r pre post}
-#Summary statistics
-summary_stats <- df_completed_1 %>%
-  mutate(
-    hopefulness_change = post_hopefulness - pre_hopefulness,
-    fas_change = post_fas_sum - pre_fas_sum,
-    bas_change = post_bas_sum - pre_bas_sum
-  ) %>%
-  select(pre_hopefulness, post_hopefulness,
-         pre_fas_sum, post_fas_sum,
-         pre_bas_sum, post_bas_sum,
-         hopefulness_change, fas_change, bas_change) %>%
+
+summary_stats_teen_usa <- df_sample_teen_usa_measurecompleter |>
   summarize(
     n = n(),
-    across(everything(), list(mean = mean, sd = sd), na.rm = TRUE)
+
+    hope_pre_mean  = mean(pre_hopefulness, na.rm = TRUE),
+    hope_pre_sd    = sd(pre_hopefulness, na.rm = TRUE),
+    hope_post_mean = mean(post_hopefulness, na.rm = TRUE),
+    hope_post_sd   = sd(post_hopefulness, na.rm = TRUE),
+
+    fas_pre_mean  = mean(pre_fas_sum, na.rm = TRUE),
+    fas_pre_sd    = sd(pre_fas_sum, na.rm = TRUE),
+    fas_post_mean = mean(post_fas_sum, na.rm = TRUE),
+    fas_post_sd   = sd(post_fas_sum, na.rm = TRUE),
+
+    bas_pre_mean  = mean(pre_bas_sum, na.rm = TRUE),
+    bas_pre_sd    = sd(pre_bas_sum, na.rm = TRUE),
+    bas_post_mean = mean(post_bas_sum, na.rm = TRUE),
+    bas_post_sd   = sd(post_bas_sum, na.rm = TRUE)
   )
 
-#Effect sizes
-dz_hopefulness <- d.dep.t.diff(
-  mdiff = summary_stats$hopefulness_change_mean,
-  sddiff = summary_stats$hopefulness_change_sd,
-  n = summary_stats$n,
-  a = .05
-) %>%
-  pluck("estimate")
+#Hopefulness
+d_dep_t_avg(
+  m1 = summary_stats_teen_usa$hope_post_mean, m2 = summary_stats_teen_usa$hope_pre_mean,
+  sd1 = summary_stats_teen_usa$hope_post_sd,  sd2 = summary_stats_teen_usa$hope_pre_sd,
+  n = summary_stats_teen_usa$n, a = .05
+) |>  pluck("estimate")
 
-dz_fas <- d.dep.t.diff(
-  mdiff = summary_stats$fas_change_mean,
-  sddiff = summary_stats$fas_change_sd,
-  n = summary_stats$n,
-  a = .05
-) %>%
-  pluck("estimate")
+#Functionality appreciation
+d_dep_t_avg(
+  m1 = summary_stats_teen_usa$fas_post_mean, m2 = summary_stats_teen_usa$fas_pre_mean,
+  sd1 = summary_stats_teen_usa$fas_post_sd,  sd2 = summary_stats_teen_usa$fas_pre_sd,
+  n = summary_stats_teen_usa$n, a = .05
+) |>  pluck("estimate")
 
-dz_bas <- d.dep.t.diff(
-  mdiff = summary_stats$bas_change_mean,
-  sddiff = summary_stats$bas_change_sd,
-  n = summary_stats$n,
-  a = .05
-) %>%
-  pluck("estimate")
+#Body appreciation
+d_dep_t_avg(
+  m1 = summary_stats_teen_usa$bas_post_mean, m2 = summary_stats_teen_usa$bas_pre_mean,
+  sd1 = summary_stats_teen_usa$bas_post_sd,  sd2 = summary_stats_teen_usa$bas_pre_sd,
+  n = summary_stats_teen_usa$n, a = .05
+) |>  pluck("estimate")
 ```
 
 ```{r sample characterization}
-gender_breakdown <- df_completed_1 %>%
+gender_breakdown <- df_sample_teen_usa_ssicompleter |>
   select(
     "dem_genderidentity_Cisgender woman/girl",
     "dem_genderidentity_Cisgender man/boy",
@@ -300,8 +232,8 @@ gender_breakdown <- df_completed_1 %>%
     "dem_genderidentity_Questioning",
     "dem_genderidentity_Other",
     "dem_genderidentity_Prefer not to answer",
-    "dem_genderidentity_NA"
-  ) %>%
+     "dem_genderidentity_NA"
+  ) |>
   summarize(
     across(
       everything(),
@@ -312,7 +244,7 @@ gender_breakdown <- df_completed_1 %>%
     )
   )
 
-race_breakdown <- df_completed_1 %>%
+race_breakdown <- df_sample_teen_usa_ssicompleter |>
   select(
     "dem_raceethnicity_White/Caucasian (includes Middle Eastern)",
     "dem_raceethnicity_Black/African American",
@@ -323,7 +255,7 @@ race_breakdown <- df_completed_1 %>%
     "dem_raceethnicity_Other",
     "dem_raceethnicity_Prefer not to answer",
     "dem_raceethnicity_NA"
-  ) %>%
+  ) |>
   summarize(
     across(
       everything(),
@@ -334,35 +266,87 @@ race_breakdown <- df_completed_1 %>%
     )
   )
 
-df_completed_1 %>% 
-count(dem_sexualorientation) %>%
+df_sample_teen_usa_ssicompleter |> 
+count(dem_sexualorientation) |>
   mutate(percent = (n / sum(n))*100)
 
-df_completed_1 %>% 
-count(source) %>%
+df_sample_teen_usa_ssicompleter |> 
+count(source) |>
   mutate(percent = (n / sum(n))*100)
 
-df_completed_1 %>% 
-count(dem_weightshapeconcern) %>%
+df_sample_teen_usa_ssicompleter |> 
+count(dem_weightshapeconcern) |>
   mutate(percent = (n / sum(n))*100)
 
-df_completed_1 %>% 
-count(dem_binge) %>%
+df_sample_teen_usa_ssicompleter |> 
+count(dem_binge) |>
   mutate(percent = (n / sum(n))*100)
 
-df_completed_1 %>% 
-count(dem_purge) %>%
+df_sample_teen_usa_ssicompleter |> 
+count(dem_purge) |>
   mutate(percent = (n / sum(n))*100)
 
-df_completed_1 %>% 
-count(dem_restrict) %>%
+df_sample_teen_usa_ssicompleter |> 
+count(dem_restrict) |>
   mutate(percent = (n / sum(n))*100)
 
-df_completed_1 %>% 
-count(dem_foodinsecurity) %>%
+df_sample_teen_usa_ssicompleter |> 
+count(dem_foodinsecurity) |>
   mutate(percent = (n / sum(n))*100)
 
-df_completed_1 %>% 
-count(dem_eddx) %>%
+df_sample_teen_usa_ssicompleter |> 
+count(dem_eddx) |>
   mutate(percent = (n / sum(n))*100)
+```
+
+```{r exploratory analyses for teen international sample}
+df_sample_teen_measurecompleter <- df_sample_teen |> 
+   filter(!is.na(fas_change), !is.na(bas_change), !is.na(hopelessness_change))
+
+df_sample_teen_measurecompleter |>
+  summarize(
+    mean = mean(rating_score, na.rm = TRUE),
+    sd = sd(rating_score, na.rm = TRUE)
+  )
+
+summary_stats_teen <- df_sample_teen_measurecompleter |>
+  summarize(
+    n = n(),
+
+    hope_pre_mean  = mean(pre_hopefulness, na.rm = TRUE),
+    hope_pre_sd    = sd(pre_hopefulness, na.rm = TRUE),
+    hope_post_mean = mean(post_hopefulness, na.rm = TRUE),
+    hope_post_sd   = sd(post_hopefulness, na.rm = TRUE),
+
+    fas_pre_mean  = mean(pre_fas_sum, na.rm = TRUE),
+    fas_pre_sd    = sd(pre_fas_sum, na.rm = TRUE),
+    fas_post_mean = mean(post_fas_sum, na.rm = TRUE),
+    fas_post_sd   = sd(post_fas_sum, na.rm = TRUE),
+
+    bas_pre_mean  = mean(pre_bas_sum, na.rm = TRUE),
+    bas_pre_sd    = sd(pre_bas_sum, na.rm = TRUE),
+    bas_post_mean = mean(post_bas_sum, na.rm = TRUE),
+    bas_post_sd   = sd(post_bas_sum, na.rm = TRUE)
+  )
+
+#Hopefulness
+d_dep_t_avg(
+  m1 = summary_stats_teen$hope_post_mean, m2 = summary_stats_teen$hope_pre_mean,
+  sd1 = summary_stats_teen$hope_post_sd,  sd2 = summary_stats_teen$hope_pre_sd,
+  n = summary_stats_teen$n, a = .05
+) |>  pluck("estimate")
+
+#Functionality appreciation
+d_dep_t_avg(
+  m1 = summary_stats_teen$fas_post_mean, m2 = summary_stats_teen$fas_pre_mean,
+  sd1 = summary_stats_teen$fas_post_sd,  sd2 = summary_stats_teen$fas_pre_sd,
+  n = summary_stats_teen$n, a = .05
+) |>  pluck("estimate")
+
+#Body appreciation
+d_dep_t_avg(
+  m1 = summary_stats_teen$bas_post_mean, m2 = summary_stats_teen$bas_pre_mean,
+  sd1 = summary_stats_teen$bas_post_sd,  sd2 = summary_stats_teen$bas_pre_sd,
+  n = summary_stats_teen$n, a = .05
+) |>  pluck("estimate")
 ```
