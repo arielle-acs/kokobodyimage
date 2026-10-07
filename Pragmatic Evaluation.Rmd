@@ -12,6 +12,8 @@ if(!require(tidyverse)){install.packages('tidyverse')}
 library(tidyverse) 
 if(!require(MOTE)){install.packages('MOTE')}
 library(MOTE) 
+if(!require(lubridate)){install.packages('lubridate')}
+library(lubridate) 
 
 df <- read_csv("Data/pbn_only/9.1.26.csv", col_types = cols(.default = "c"))
 ```
@@ -156,7 +158,7 @@ df_sample_teen_not_usa <- df_sample_teen %>%
   )
 ```
 
-```{r identify teen usa completers for EDRS abstract}
+```{r sample breakdown - usa}
 df_sample_teen_usa_fullcompleter <- df_sample_teen_usa |> #full completer according to Koko system (includes post-SSI demographics)
   filter(!is.na(completed_at))
 
@@ -167,15 +169,16 @@ df_sample_teen_usa_ssicompleter <- df_sample_teen_usa |> #the last selection opt
   filter(!is.na(body_copingstatement))
 ```
 
-```{r acceptability}
+```{r acceptability - usa}
 df_sample_teen_usa_measurecompleter |>
   summarize(
+    n = sum(!is.na(rating_score)),
     mean = mean(rating_score, na.rm = TRUE),
     sd = sd(rating_score, na.rm = TRUE)
   )
 ```
 
-```{r pre post}
+```{r pre post - usa}
 
 summary_stats_teen_usa <- df_sample_teen_usa_measurecompleter |>
   summarize(
@@ -219,8 +222,8 @@ d_dep_t_avg(
 ) |>  pluck("estimate")
 ```
 
-```{r sample characterization}
-gender_breakdown <- df_sample_teen_usa_ssicompleter |>
+```{r sample characterization - usa}
+gender_breakdown_usa <- df_sample_teen_usa_ssicompleter |>
   select(
     "dem_genderidentity_Cisgender woman/girl",
     "dem_genderidentity_Cisgender man/boy",
@@ -244,7 +247,7 @@ gender_breakdown <- df_sample_teen_usa_ssicompleter |>
     )
   )
 
-race_breakdown <- df_sample_teen_usa_ssicompleter |>
+race_breakdown_usa <- df_sample_teen_usa_ssicompleter |>
   select(
     "dem_raceethnicity_White/Caucasian (includes Middle Eastern)",
     "dem_raceethnicity_Black/African American",
@@ -299,15 +302,27 @@ count(dem_eddx) |>
   mutate(percent = (n / sum(n))*100)
 ```
 
-```{r exploratory analyses for teen international sample}
-df_sample_teen_measurecompleter <- df_sample_teen |> 
+```{r sample breakdown - international}
+df_sample_teen_fullcompleter <- df_sample_teen |> #full completer according to Koko system (includes post-SSI demographics)
+  filter(!is.na(completed_at))
+
+df_sample_teen_measurecompleter <- df_sample_teen |> #considering a measure completer if proximal outcome change scores are present
    filter(!is.na(fas_change), !is.na(bas_change), !is.na(hopelessness_change))
 
+df_sample_teen_ssicompleter <- df_sample_teen |> #the last selection option in the SSI is the best benchmark I have
+  filter(!is.na(body_copingstatement))
+```
+
+```{r acceptability - international}
 df_sample_teen_measurecompleter |>
   summarize(
+    n = sum(!is.na(rating_score)),
     mean = mean(rating_score, na.rm = TRUE),
     sd = sd(rating_score, na.rm = TRUE)
   )
+```
+
+```{r pre post - international}
 
 summary_stats_teen <- df_sample_teen_measurecompleter |>
   summarize(
@@ -349,4 +364,108 @@ d_dep_t_avg(
   sd1 = summary_stats_teen$bas_post_sd,  sd2 = summary_stats_teen$bas_pre_sd,
   n = summary_stats_teen$n, a = .05
 ) |>  pluck("estimate")
+```
+
+```{r sample characterization - international}
+gender_breakdown_international <- df_sample_teen_ssicompleter |>
+  select(
+    "dem_genderidentity_Cisgender woman/girl",
+    "dem_genderidentity_Cisgender man/boy",
+    "dem_genderidentity_Transgender woman/girl",
+    "dem_genderidentity_Transgender man/boy",
+    "dem_genderidentity_Nonbinary",
+    "dem_genderidentity_Genderqueer",
+    "dem_genderidentity_Agender",
+    "dem_genderidentity_Questioning",
+    "dem_genderidentity_Other",
+    "dem_genderidentity_Prefer not to answer",
+     "dem_genderidentity_NA"
+  ) |>
+  summarize(
+    across(
+      everything(),
+      list(
+        n = ~ sum(.x == 1, na.rm = TRUE),
+        percent = ~ mean(.x == 1, na.rm = TRUE) * 100
+      )
+    )
+  )
+
+race_breakdown_international <- df_sample_teen_ssicompleter |>
+  select(
+    "dem_raceethnicity_White/Caucasian (includes Middle Eastern)",
+    "dem_raceethnicity_Black/African American",
+    "dem_raceethnicity_Asian (including Asian Desi)",
+    "dem_raceethnicity_Hispanic/Latinx",
+    "dem_raceethnicity_American Indian or Alaskan Native",
+    "dem_raceethnicity_Native Hawaiian or other Pacific Islander",
+    "dem_raceethnicity_Other",
+    "dem_raceethnicity_Prefer not to answer",
+    "dem_raceethnicity_NA"
+  ) |>
+  summarize(
+    across(
+      everything(),
+      list(
+        n = ~ sum(.x == 1, na.rm = TRUE),
+        percent = ~ mean(.x == 1, na.rm = TRUE) * 100
+      )
+    )
+  )
+
+df_sample_teen_ssicompleter |> 
+count(dem_sexualorientation) |>
+  mutate(percent = (n / sum(n))*100)
+
+df_sample_teen_ssicompleter |> 
+count(source) |>
+  mutate(percent = (n / sum(n))*100)
+
+df_sample_teen_ssicompleter |> 
+count(dem_weightshapeconcern) |>
+  mutate(percent = (n / sum(n))*100)
+
+df_sample_teen_ssicompleter |> 
+count(dem_binge) |>
+  mutate(percent = (n / sum(n))*100)
+
+df_sample_teen_ssicompleter |> 
+count(dem_purge) |>
+  mutate(percent = (n / sum(n))*100)
+
+df_sample_teen_ssicompleter |> 
+count(dem_restrict) |>
+  mutate(percent = (n / sum(n))*100)
+
+df_sample_teen_ssicompleter |> 
+count(dem_foodinsecurity) |>
+  mutate(percent = (n / sum(n))*100)
+
+df_sample_teen_ssicompleter |> 
+count(dem_eddx) |>
+  mutate(percent = (n / sum(n))*100)
+```
+
+```{r neda samples}
+df_neda_teen <- df |> 
+  filter(source == "neda") |> 
+  filter(
+    str_detect(
+      dem_age,
+      regex("\\b(13|14|15|16|17)\\b", ignore_case = TRUE)
+    )
+  )
+#Only 45: need to expand analyses for F31
+
+df_neda <- df |> 
+  filter(source == "neda") 
+
+df_neda_fullcompleter <- df_neda |>
+  filter(!is.na(completed_at))
+
+df_neda_measurecompleter <- df_neda |> 
+   filter(!is.na(fas_change), !is.na(bas_change), !is.na(hopelessness_change))
+
+df_neda_ssicompleter <- df_neda |>
+  filter(!is.na(body_copingstatement))
 ```
