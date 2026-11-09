@@ -468,4 +468,45 @@ df_neda_measurecompleter <- df_neda |>
 
 df_neda_ssicompleter <- df_neda |>
   filter(!is.na(body_copingstatement))
+
+summary_stats_neda <- df_neda_measurecompleter |>
+  summarize(
+    n = n(),
+
+    hope_pre_mean  = mean(pre_hopefulness, na.rm = TRUE),
+    hope_pre_sd    = sd(pre_hopefulness, na.rm = TRUE),
+    hope_post_mean = mean(post_hopefulness, na.rm = TRUE),
+    hope_post_sd   = sd(post_hopefulness, na.rm = TRUE),
+
+    fas_pre_mean  = mean(pre_fas_sum, na.rm = TRUE),
+    fas_pre_sd    = sd(pre_fas_sum, na.rm = TRUE),
+    fas_post_mean = mean(post_fas_sum, na.rm = TRUE),
+    fas_post_sd   = sd(post_fas_sum, na.rm = TRUE),
+
+    bas_pre_mean  = mean(pre_bas_sum, na.rm = TRUE),
+    bas_pre_sd    = sd(pre_bas_sum, na.rm = TRUE),
+    bas_post_mean = mean(post_bas_sum, na.rm = TRUE),
+    bas_post_sd   = sd(post_bas_sum, na.rm = TRUE)
+  )
+
+#Hopefulness
+d_dep_t_avg(
+  m1 = summary_stats_neda$hope_post_mean, m2 = summary_stats_neda$hope_pre_mean,
+  sd1 = summary_stats_neda$hope_post_sd,  sd2 = summary_stats_neda$hope_pre_sd,
+  n = summary_stats_neda$n, a = .05
+) |>  pluck("estimate")
+
+#Functionality appreciation
+d_dep_t_avg(
+  m1 = summary_stats_neda$fas_post_mean, m2 = summary_stats_neda$fas_pre_mean,
+  sd1 = summary_stats_neda$fas_post_sd,  sd2 = summary_stats_neda$fas_pre_sd,
+  n = summary_stats_neda$n, a = .05
+) |>  pluck("estimate")
+
+#Body appreciation
+d_dep_t_avg(
+  m1 = summary_stats_neda$bas_post_mean, m2 = summary_stats_neda$bas_pre_mean,
+  sd1 = summary_stats_neda$bas_post_sd,  sd2 = summary_stats_neda$bas_pre_sd,
+  n = summary_stats_neda$n, a = .05
+) |>  pluck("estimate")
 ```
