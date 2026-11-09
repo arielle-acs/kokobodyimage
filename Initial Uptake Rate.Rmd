@@ -1,0 +1,39 @@
+---
+title: "Initial Uptake Rate"
+author: "Arielle Smith with Claude assistance"
+date: "2026-11-06"
+output: html_document
+---
+
+This is a script to calculate the proportion of 13-17 NEDA screen respondents who 
+screen At-Risk for or with a Likely ED who clicked the link to try PBN on Koko. 
+To match the data pull dates received, restricting analysis to responses received through 10/28/26. 
+Of note, National Eating Disorders Screening Day was held on October 14, so this may be a
+potential confounding variable, but this is the data available at the moment (need some data before grant deadline). 
+
+```{r}
+if(!require(dplyr)){install.packages('dplyr')}
+library(dplyr)
+if(!require(lubridate)){install.packages('lubridate')}
+library(lubridate) 
+
+neda_data <- read.csv("Data/neda_screen/neda_data.csv")
+koko_data <- read.csv("Data/neda_screen/koko_data.csv")
+```
+
+```{r filter NEDA data to end at 10/28/26}
+neda_filtered <- neda_data %>%
+  mutate(submission_date = mdy(submission_date)) %>%
+  filter(submission_date <= as.Date("2026-10-28"))
+```
+
+```{r calculate uptake rate}
+neda_filtered %>%
+  summarize(
+    n_screened_total = n(),
+    n_pbn_uptake = sum(submission_id %in% koko_data$submission_id),
+    percent_uptake = (n_pbn_uptake / n_screened_total)* 100
+  )
+```
+
+Note re the age data: People who select 13-17 are asked to type exact age and a handful of responses do not make sense (not 13-17) but still included here because they clicked the age range button.
